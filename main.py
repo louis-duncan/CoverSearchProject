@@ -2,7 +2,9 @@ import datetime
 import os
 import pickle
 import random
+import time
 
+import kml_load
 import OSGridConverter
 import easygui
 import coord
@@ -10,9 +12,12 @@ import winsound
 from excel import OpenExcel
 
 ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+EXCEL_EPOCH = datetime.datetime(1900, 1, 1)
+
 
 class UnknownFormatError(Exception):
     pass
+
 
 class AerialImage:
     def __init__(self,
@@ -42,12 +47,23 @@ class AerialImage:
         lon_lat_object = OSGridConverter.grid2latlong(self.center_point_grid)
         return lon_lat_object.longitude, lon_lat_object.latitude
 
+
 class Point:
     def __init__(self, title, description, longitude, latitude):
         self.title = title
         self.description = description
         self.longitude = longitude
         self.latitude = latitude
+
+
+class Line:
+    def __init__(self, title, description, start_longitude, start_latitude, end_longitude, end_latitude):
+        self.title = title
+        self.description = description
+        self.start_longitude = start_longitude
+        self.start_latitude = start_latitude
+        self.end_longitude = end_longitude
+        self.end_latitude = end_latitude
 
 
 def search_files(root_dir=None, key_word=None):
@@ -77,6 +93,7 @@ def search_files(root_dir=None, key_word=None):
     winsound.MessageBeep()
     return found_files
 
+
 # "ENGLISH HERITAGE - NATIONAL MONUMENTS RECORD" at A1
 def type_one_cover_search_2_images(path):
     cover_search = OpenExcel(path)
@@ -105,6 +122,7 @@ def type_one_cover_search_2_images(path):
             images.append(new_image)
         row += 1
     return images
+
 
 # "Sortie number" at B13
 def type_two_cover_search_2_images(path):
@@ -154,7 +172,7 @@ def analise_cover_search(path):
 
     items = []
     for start in table_starts:
-        headers = [] # To be list of (column, "header text")
+        headers = []  # To be list of (column, "header text")
 
         current_row = start[1]
         data_started = False
@@ -227,6 +245,7 @@ def analise_cover_search(path):
 
             current_row += 1
     return items
+
 
 def cover_search_2_images(path):
     cover_search = OpenExcel(path)
@@ -305,6 +324,169 @@ def get_headers_in_use(results):
     return headers
 
 
+def results_to_objects(results):
+    objects = []
+    date_formats = ["%d-%m-%Y",
+                    "%d/%m/%Y",
+                    "%d/%m/%y",
+                    "%d %b %Y",
+                    "%d-%b-%Y",
+                    ]
+    try:
+        for r in results:
+            is_point = False
+            try:
+                p = r["Grid"]
+                is_point = True
+            except KeyError:
+                pass
+
+            title = ""
+            try:
+                title = "{}/{:0.0f}".format(r["Sortie Number"],
+                                            r["Frame Number"])
+            except KeyError:
+                try:
+                    title = "{}/{:0.0f}-{:0.0f}".format(r["Sortie Number"],
+                                                        r["Start Frame Number"],
+                                                        r["End Frame Number"])
+                except KeyError:
+                    try:
+                        title = "{}/{:0.0f}".format(r["Sortie Number"],
+                                                    r["Start Frame Number"])
+                    except KeyError:
+                        pass
+            except ValueError:
+                title = "{}".format(r["Sortie Number"])
+
+            while title == "":
+                title = easygui.enterbox("No title could be made for record\n{}".format(r))
+                if title is None:
+                    title = ""
+                else:
+                    pass
+
+            description = ""
+
+            # Date
+            try:
+                if type(r["Date"]) == float:
+                    try:
+                        description += "Date:{:%d/%m/%Y}\n".format(EXCEL_EPOCH + datetime.timedelta(days=r["Date"]))
+                    except:
+                        print("Failed to add date to results:\{}".format(r))
+                else:
+                    date_text = ""
+                    date_data = r["Date"]
+                    tried_adding_zero = False
+                    while date_text == "":
+                        key_error = False
+                        for df in date_formats:
+                            try:
+                                date_text = "Date: {:%d/%m/%Y}\n".format(datetime.datetime.strptime(date_data, df))
+                            except ValueError:
+                                pass
+                            except KeyError:
+                                key_error = True
+                        if key_error:
+                            break
+                        if date_text == "":
+                            if tried_adding_zero:
+                                date_data = date_data[0:-1]
+                                resp = easygui.multenterbox("No date format worked for \'{}\'\n"
+                                                            "in {} from file:\n{}\n"
+                                                            "Enter new format:".format(date_data,
+                                                                                       title,
+                                                                                       r["originating_file"]),
+                                                            fields=["Data:", "Format:"], values=[date_data, ""])
+                                if resp is None:
+                                    pass
+                                else:
+                                    date_data, new_format = resp
+                                    if new_format == "":
+                                        pass
+                                    else:
+                                        date_formats.append(new_format)
+                            else:
+                                date_data += "0"
+                                tried_adding_zero = True
+                        else:
+                            pass
+                    if date_text != "":
+                        description += "Date: {}\n".format(date_text)
+                    else:
+                        pass
+            except KeyError:
+                print("No date on {}".format(title))
+
+            try:
+                description += "Scale: 1:{:0.0f}\n".format(r["Scale"])
+            except KeyError:
+                pass
+
+            try:
+                description += "Library Number: {:0.0f}\n".format(r["Library Number"])
+            except KeyError:
+                pass
+            except ValueError:
+                description += "Library Number: {}\n".format(r["Library Number"])
+
+            try:
+                description += "Quality: {}\n".format(r["Quality"])
+            except KeyError:
+                pass
+
+            try:
+                description += "Run Number: {:0.0f}\n".format(r["Run"])
+            except KeyError:
+                pass
+            except ValueError:
+                description += "Run Number: {}\n".format(r["Run"])
+
+            description += "\nFound in:{}".format(r["originating_file"])
+
+            key_error = False
+            if is_point:
+                lat_lon_obj: OSGridConverter.LatLong = OSGridConverter.grid2latlong(r["Grid"])
+                latitude, longitude = lat_lon_obj.latitude, lat_lon_obj.longitude
+                new_obj = Point(title, description, longitude, latitude)
+            else:
+                try:
+                    start_lat_lon_obj: OSGridConverter.LatLong = OSGridConverter.grid2latlong(r["Grid Start"])
+                    try:
+                        end_lat_lon_obj: OSGridConverter.LatLong = OSGridConverter.grid2latlong(r["Grid End"])
+                    except KeyError:
+                        pass
+
+                except KeyError:
+                    try:
+                        grid_start, grid_end = r["Grid Start-End"].split(" ", 1)
+                        start_lat_lon_obj: OSGridConverter.LatLong = OSGridConverter.grid2latlong(grid_start)
+                        end_lat_lon_obj: OSGridConverter.LatLong = OSGridConverter.grid2latlong(grid_end)
+                    except KeyError:
+                        key_error = True
+                if not key_error:
+                    start_lat, start_lon = start_lat_lon_obj.latitude, start_lat_lon_obj.longitude
+                    end_lon = end_lat = None
+                    try:
+                        end_lat, end_lon = end_lat_lon_obj.latitude, end_lat_lon_obj.longitude
+                    except NameError:
+                        pass
+
+                    new_obj = Line(title, description, start_lon, start_lat, end_lon, end_lat)
+                else:
+                    print("{} has no location!".format(title))
+                    new_obj = None
+            if new_obj is None:
+                pass
+            else:
+                objects.append(new_obj)
+        return objects
+    except:
+        print("Failed @ {}".format(r))
+        raise
+
+
 def load_results(path=None):
     if path is None:
         path = easygui.fileopenbox("Select file list:", filetypes="*.dat")
@@ -315,3 +497,64 @@ def load_results(path=None):
         data = pickle.load(fh)
 
     return data
+
+
+def remove_headers(results, headers_to_remove):
+    for t in headers_to_remove:
+        for r in range(len(results)):
+            try:
+                p = results[r].pop(t)
+            except KeyError:
+                pass
+    return results
+
+
+def look_for_duplicates():
+    objects = load_results("C:\\Users\\louis\\GitKraken\\CoverSearchProject\\point_line_objects.dat")
+    base_list = []
+    working_list = []
+    for o in objects:
+        base_list.append(o)
+        working_list.append(o.title)
+    duplicates = []
+    tot = len(base_list)
+    start_time = time.time()
+    t = 0
+    while len(base_list) > 0:
+        title_to_find = base_list[0].title
+        title_dupes = []
+        w = 0
+        reached_end = False
+        while not reached_end:
+            if base_list[w].title == title_to_find:
+                title_dupes.append(base_list.pop(w))
+            else:
+                pass
+            w += 1
+            if w >= len(base_list):
+                reached_end = True
+        assert len(title_dupes) > 0
+        duplicates.append(title_dupes)
+
+        if (t + 1) % 500 == 0:
+            eta = ((time.time() - start_time) / (t / len(base_list))) - (time.time() - start_time)
+            unit = "seconds"
+            if eta > 60:
+                eta = eta / 60
+                unit = "minutes"
+            if eta > 60:
+                eta = eta / 60
+                unit = "hours"
+            print("Processed {} of {} points... eta: {:0.2f} {}\n".format(t + 1, len(base_list), eta, unit))
+        t += 1
+    return duplicates
+
+
+def consolidate(dupes):
+    new_objects = []
+    for d in dupes:
+        new_object = d[0]
+        for i in range(len(d) - 1):
+            new_object.description += "\n" + d[i].description.split("\n")[-1]
+        new_objects.append(new_object)
+    return new_objects

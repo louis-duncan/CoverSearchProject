@@ -1,7 +1,9 @@
+import datetime
 import os
-import database_io
-import temp
+import time
+
 import coord
+import main
 
 head_text = """<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2" xmlns:kml="http://www.opengis.net/kml/2.2" xmlns:atom="http://www.w3.org/2005/Atom">
@@ -28,6 +30,19 @@ point_base = """\t<Placemark>
 \t\t</Point>
 \t</Placemark>"""
 
+line_base = """
+\t<Placemark>
+\t\t<name>title-here</name>
+\t\t<description>description-here</description>
+\t\t<styleUrl>#inline</styleUrl>
+\t\t<LineString>
+\t\t\t<tessellate>1</tessellate>
+\t\t\t<coordinates>
+\t\t\t\tstart-lon-here,start-lat-here,0 end-lon-here,end-lat-here,0 
+\t\t\t</coordinates>
+\t\t</LineString>
+\t</Placemark>"""
+
 
 def create_kml_point(title, description, lon, lat):
     assert type(title) == type(description) == str
@@ -41,18 +56,36 @@ def create_kml_point(title, description, lon, lat):
     return new_point
 
 
-def launch(kml_text, cache_path=database_io.TEMP_DATA_LOCATION):
-    fd, file_name = temp.mkstemp(suffix=".kml", prefix="OATEMP_", dir=cache_path)
-    os.close(fd)
-    with open(file_name, "w") as file:
-        file.write(kml_text)
-    os.startfile(file_name)
+def create_kml_line(title, description, start_lon, start_lat, end_lon, end_lat):
+    new_line = line_base
+    new_line = new_line.replace("name-here", title)
+    new_line = new_line.replace("description-here", description)
+    new_line = new_line.replace("start-lon-here", str(start_lon))
+    new_line = new_line.replace("start-lat-here", str(start_lat))
+    new_line = new_line.replace("end-lon-here", str(end_lon))
+    new_line = new_line.replace("end-lat-here", str(end_lat))
+    new_line = new_line.replace("&", "&amp;")
+    return new_line
 
 
-def load_batch(points):
+def create_batch(points):
     kml_text = ""
     kml_text += head_text
-    for p in points:
-        kml_text += create_kml_point(p[0], p[1], p[2], p[3]) + "\n"
+    n = len(points)
+    start_time = time.time()
+    for i, p in enumerate(points):
+        if str(type(p)) == "<class '__main__.Point'>":
+            kml_text += create_kml_point(p.title, p.description, p.longitude, p.latitude) + "\n"
+        elif str(type(p)) == "<class '__main__.Line'>":
+            kml_text += create_kml_line(p.title, p.description,
+                                        p.start_longitude, p.start_latitude,
+                                        p.end_longitude, p.end_latitude,) + "\n"
+        else:
+            print("Point {} is unknown type {}!".format(p.title, type(p)))
+        if (i + 1) % 1000 == 0:
+            now = time.time()
+            total_time = ((now - start_time) / i) * n
+            eta = datetime.datetime.fromtimestamp(start_time) + datetime.timedelta(seconds=total_time)
+            print("Processed {} of {} points... eta: {:%H:%M:%Shrs}\n".format(i + 1, n, eta))
     kml_text += tail_text
-    launch(kml_text)
+    return kml_text
