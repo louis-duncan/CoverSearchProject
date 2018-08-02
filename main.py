@@ -1,6 +1,7 @@
 import datetime
 import os
 import pickle
+import random
 
 import OSGridConverter
 import easygui
@@ -132,6 +133,7 @@ def type_two_cover_search_2_images(path):
 
 
 def analise_cover_search(path):
+    random_ref = hex(random.randint(1, 4294967296)).upper().strip("0X")
     cover_search = OpenExcel(path)
     data = cover_search.read()
     # Find Table Starts
@@ -144,7 +146,7 @@ def analise_cover_search(path):
             cell_data = cover_search.read("{}{}".format(ALPHABET[c], r + 1))
             if ("SORTIE" in str(cell_data).upper()) and ("TOTAL" not in str(cell_data).upper()):
                 found_start = True
-                table_starts.append(r)
+                table_starts.append((c, r))
         if found_start:
             break
         else:
@@ -154,17 +156,39 @@ def analise_cover_search(path):
     for start in table_starts:
         headers = [] # To be list of (column, "header text")
 
+        current_row = start[1]
+        data_started = False
+        while not data_started:
+            current_row += 1
+            first_cell_address = "{}{}".format(ALPHABET[start[0]], current_row + 1)
+            try:
+                cell_data = cover_search.read(first_cell_address)
+            except IndexError:
+                print("Failed at: {}".format(first_cell_address))
+                raise
+            if cell_data.count("/") > 0:
+                data_started = True
+            else:
+                pass
+
         empty_cols = []
         for c in range(sheet_width):
-            cell_data = cover_search.read("{}{}".format(ALPHABET[c], start + 1))
+            cell_data = cover_search.read("{}{}".format(ALPHABET[c], current_row + 1))
             if cell_data == "":
                 empty_cols.append(c)
             else:
-                headers.append([ALPHABET[c], cell_data.strip()])
+                headers.append([ALPHABET[c], ""])
+
+        for c, h in enumerate(headers):
+            cell_data = cover_search.read("{}{}".format(h[0], start[1] + 1))
+            if cell_data == "":
+                headers[c][1] = "{}:{}".format(random_ref, [c][0])
+            else:
+                headers[c][1] = cell_data.strip()
 
         data_started = False
         data_finished = False
-        current_row = start + 1
+        current_row = start[1] + 1
 
         while not data_finished:
             first_cell_address = "{}{}".format(headers[0][0], current_row + 1)
