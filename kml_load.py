@@ -15,6 +15,7 @@ tail_text = """</Folder>
 
 point_base = """\t<Placemark>
 \t\t<name>name-here</name>
+\t\t<visibility>0</visibility>
 \t\t<description>description-here</description>
 \t\t<LookAt>
 \t\t\t<longitude>lon-here</longitude>
@@ -25,6 +26,7 @@ point_base = """\t<Placemark>
 \t\t\t<range>2000</range>
 \t\t\t<gx:altitudeMode>relativeToSeaFloor</gx:altitudeMode>
 \t\t</LookAt>
+\t\t<styleUrl>msn_target200</styleUrl>
 \t\t<Point>
 \t\t\t<coordinates>lon-here, lat-here</coordinates>
 \t\t</Point>
@@ -32,9 +34,9 @@ point_base = """\t<Placemark>
 
 line_base = """
 \t<Placemark>
-\t\t<name>title-here</name>
+\t\t<name>name-here</name>
+\t\t<visibility>0</visibility>
 \t\t<description>description-here</description>
-\t\t<styleUrl>#inline</styleUrl>
 \t\t<LineString>
 \t\t\t<tessellate>1</tessellate>
 \t\t\t<coordinates>
@@ -68,24 +70,28 @@ def create_kml_line(title, description, start_lon, start_lat, end_lon, end_lat):
     return new_line
 
 
-def create_batch(points):
+def create_batch(points, limit=None, convert_points=True, convert_lines=True, folder_name=""):
+    if limit is None:
+        limit = len(points)
     kml_text = ""
     kml_text += head_text
+    if folder_name != "":
+        kml_text = kml_text.replace("OpenArchive Pins", folder_name)
     n = len(points)
-    start_time = time.time()
+    count = 0
     for i, p in enumerate(points):
-        if str(type(p)) == "<class '__main__.Point'>":
+        if count == limit:
+            break
+        if (str(type(p)) == "<class '__main__.Point'>") and (convert_points is True):
             kml_text += create_kml_point(p.title, p.description, p.longitude, p.latitude) + "\n"
-        elif str(type(p)) == "<class '__main__.Line'>":
+            count += 1
+
+        if (str(type(p)) == "<class '__main__.Line'>") and (convert_lines is True):
             kml_text += create_kml_line(p.title, p.description,
                                         p.start_longitude, p.start_latitude,
                                         p.end_longitude, p.end_latitude,) + "\n"
-        else:
-            print("Point {} is unknown type {}!".format(p.title, type(p)))
+            count += 1
         if (i + 1) % 1000 == 0:
-            now = time.time()
-            total_time = ((now - start_time) / i) * n
-            eta = datetime.datetime.fromtimestamp(start_time) + datetime.timedelta(seconds=total_time)
-            print("Processed {} of {} points... eta: {:%H:%M:%Shrs}\n".format(i + 1, n, eta))
+            print("Processed {} of {} points in {}".format(i + 1, n, folder_name))
     kml_text += tail_text
     return kml_text

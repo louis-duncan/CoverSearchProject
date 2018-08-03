@@ -3,7 +3,7 @@ import os
 import pickle
 import random
 import time
-
+import _thread
 import kml_load
 import OSGridConverter
 import easygui
@@ -558,3 +558,70 @@ def consolidate(dupes):
             new_object.description += "\n" + d[i].description.split("\n")[-1]
         new_objects.append(new_object)
     return new_objects
+
+
+def group_points(title, points, radius=50, verbose=False):
+    grouped_points = []
+    starting_number = len(points)
+    while len(points) > 0:
+        current = points.pop(0)
+        new_group = [current]
+        reached_end = False
+        c = 0
+        if len(points) == 0:
+            reached_end = True
+        while not reached_end:
+            d = coord.distance((current.longitude, current.latitude), (points[c].longitude, points[c].latitude))
+            if d <= radius:
+                new_group.append(points.pop(c))
+            else:
+                c += 1
+            if c >= len(points):
+                reached_end = True
+        grouped_points.append(new_group)
+        if len(grouped_points) % 100 == 0:
+            for c in range(len(completeness)):
+                if completeness[c][0] == title:
+                    completeness[c][1] = round(100.0 - ((len(points) / starting_number) * 100), 2)
+    with open("grouped\\{}.dat".format(title), "bw") as fh:
+        pickle.dump(grouped_points, fh)
+    for c in range(len(completeness)):
+        if completeness[c][0] == title:
+            completeness[c][1] = 100.0
+
+
+def format_seconds(seconds):
+    remaining = seconds
+    secs_in_hour = 3600
+    secs_in_minute = 60
+    hours = remaining // secs_in_hour
+    remaining = remaining - (hours * secs_in_hour)
+    minutes = remaining // secs_in_minute
+    remaining = remaining - (minutes * secs_in_minute)
+    return "{}:{}:{}hrs".format(str(int(hours)).zfill(2), str(int(minutes)).zfill(2), str(int(remaining)).zfill(2))
+
+completeness = []
+
+def run():
+    global completeness
+    data = load_results()
+    start = time.time()
+    for g in data:
+        completeness.append([g[0], 0.0])
+        _thread.start_new_thread(group_points, (g[0], g[1]))
+        print("Starting thread for {}!".format(g[0]))
+    while True:
+        time.sleep(1)
+        now = time.time()
+        files = os.listdir("grouped\\")
+        len(files)
+        text = ""
+        for c in completeness:
+            if c[1] == 100.0:
+                pass
+            else:
+                text += "{}:{:4.2f}%  ".format(c[0], round(c[1], 2))
+        print("{}\n{} completed of {}. Time elapsed: {}".format(text,
+                                                                      len(files),
+                                                                      len(data),
+                                                                      format_seconds(now - start)))
